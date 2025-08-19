@@ -1,0 +1,80 @@
+{
+  "name": "Match",
+  "type": "object",
+  "properties": {
+    "opponent_type": {
+      "type": "string",
+      "enum": [
+        "bot",
+        "player"
+      ],
+      "description": "Type of opponent"
+    },
+    "opponent_id": {
+      "type": "string",
+      "description": "Opponent player ID or bot level"
+    },
+    "player_score": {
+      "type": "integer",
+      "default": 0,
+      "description": "Player's score"
+    },
+    "opponent_score": {
+      "type": "integer",
+      "default": 0,
+      "description": "Opponent's score"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "completed",
+        "abandoned"
+      ],
+      "default": "active",
+      "description": "Match status"
+    },
+    "match_type": {
+      "type": "string",
+      "enum": [
+        "practice",
+        "tournament",
+        "daily_challenge"
+      ],
+      "default": "practice",
+      "description": "Type of match"
+    },
+    "rewards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "coins",
+              "pack",
+              "card"
+            ]
+          },
+          "amount": {
+            "type": "integer"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Match rewards"
+    }
+  },
+  "required": [
+    "opponent_type",
+    "opponent_id"
+  ],
+  "rls": {
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}

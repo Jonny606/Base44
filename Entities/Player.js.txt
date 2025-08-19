@@ -1,0 +1,76 @@
+{
+  "name": "Player",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Player name"
+    },
+    "position": {
+      "type": "string",
+      "enum": [
+        "goalkeeper",
+        "striker"
+      ],
+      "description": "Player position"
+    },
+    "rarity": {
+      "type": "string",
+      "enum": [
+        "common",
+        "rare",
+        "epic",
+        "legendary"
+      ],
+      "default": "common",
+      "description": "Card rarity level"
+    },
+    "power": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Player power level"
+    },
+    "speed": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Player speed"
+    },
+    "accuracy": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Player accuracy"
+    },
+    "special_ability": {
+      "type": "string",
+      "description": "Special ability description"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Player card image"
+    },
+    "team": {
+      "type": "string",
+      "description": "Player team"
+    },
+    "nationality": {
+      "type": "string",
+      "description": "Player nationality"
+    }
+  },
+  "required": [
+    "name",
+    "position",
+    "rarity",
+    "power",
+    "speed",
+    "accuracy"
+  ],
+  "rls": {
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}

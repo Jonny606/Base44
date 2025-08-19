@@ -1,0 +1,40 @@
+{
+  "name": "PlayerCard",
+  "type": "object",
+  "properties": {
+    "player_id": {
+      "type": "string",
+      "description": "Reference to Player entity"
+    },
+    "quantity": {
+      "type": "integer",
+      "default": 1,
+      "description": "Number of this card owned"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this card is in active lineup"
+    },
+    "level": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Card upgrade level"
+    },
+    "experience": {
+      "type": "integer",
+      "default": 0,
+      "description": "Experience points for the next level"
+    }
+  },
+  "required": [
+    "player_id"
+  ],
+  "rls": {
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}

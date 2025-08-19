@@ -1,0 +1,882 @@
+
+import React, { useState, useEffect } from 'react';
+import { User, UserStats, Match, Player, PlayerCard as PlayerCardEntity } from '@/entities/all';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Trophy, Target, Star, Coins, Users, Shield, Award } from 'lucide-react';
+import PenaltyGame from '../components/game/PenaltyGame';
+import PlayerCard from '../components/cards/PlayerCard'; // This is the UI component
+
+export default function GamePage() {
+  const [user, setUser] = useState(null);
+  const [userStats, setUserStats] = useState(null);
+  const [currentMatch, setCurrentMatch] = useState(null);
+  const [gameState, setGameState] = useState('menu');
+  const [matchStats, setMatchStats] = useState({ goals: 0, attempts: 0 });
+  const [botLevel, setBotLevel] = useState(1); // Used for practice/daily, and dynamically set for league opponent skill
+  const [availablePlayers, setAvailablePlayers] = useState([]);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+
+  // --- League Mode States ---
+  const [leagueSeasonId, setLeagueSeasonId] = useState(null); // ID of the overall league season Match record
+  const [leagueData, setLeagueData] = useState(null); // { currentMatchIndex, wins, draws, losses, points, leagueMatches: [] }
+  const [lastSeasonSummary, setLastSeasonSummary] = useState(null); // Summary data to display after a league season finishes
+
+  const leagueOpponents = [ // Define league opponents and their skill levels
+    { name: 'Amateur FC', skill: 1 }, // Scores 1-2 goals
+    { name: 'Local Legends', skill: 2 }, // Scores 2-3 goals
+    { name: 'City Strikers', skill: 3 }, // Scores 3-4 goals
+    { name: 'Elite XI', skill: 4 }, // Scores 4-5 goals
+  ];
+
+  useEffect(() => {
+    loadUserData();
+    loadPlayerCards();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const userData = await User.me();
+      setUser(userData);
+
+      const statsData = await UserStats.list();
+      if (statsData.length > 0) {
+        setUserStats(statsData[0]);
+      } else {
+        const newStats = await UserStats.create({});
+        setUserStats(newStats);
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
+  const loadPlayerCards = async () => {
+    try {
+      const playerCards = await PlayerCardEntity.list();
+      const playersWithCards = [];
+
+      for (const card of playerCards) {
+        const player = await Player.filter({ id: card.player_id });
+        if (player.length > 0 && player[0].position === 'striker') {
+          playersWithCards.push({ ...player[0], cardInfo: card });
+        }
+      }
+
+      setAvailablePlayers(playersWithCards);
+
+      if (playersWithCards.length > 0 && !selectedPlayer) {
+        const bestPlayer = playersWithCards.reduce((best, current) =>
+          (current.power + current.speed + current.accuracy) > (best.power + best.speed + best.accuracy)
+            ? current : best
+        );
+        setSelectedPlayer(bestPlayer);
+      }
+    } catch (error) {
+      console.error('Error loading player cards:', error);
+    }
+  };
+
+  // --- Game Control Logic ---
+
+  const getPointsFromResult = (playerGoals, opponentGoals) => {
+    if (playerGoals > opponentGoals) return 3; // Win
+    if (playerGoals === opponentGoals) return 1; // Draw
+    return 0; // Loss
+  };
+
+  const startMatch = async (level) => {
+    if (!selectedPlayer) {
+      alert('Please select a player first!');
+      return;
+    }
+
+    setBotLevel(level); // Set bot level for practice match
+    setGameState('playing');
+    setMatchStats({ goals: 0, attempts: 0 });
+
+    try {
+      const match = await Match.create({
+        opponent_type: 'bot',
+        opponent_id: `bot_level_${level}`,
+        match_type: 'practice',
+      });
+      setCurrentMatch(match);
+    } catch (error) {
+      console.error('Error creating bot match:', error);
+      alert('Failed to start bot match.');
+      setGameState('menu');
+    }
+  };
+
+  const startLeagueSeason = async () => {
+    if (!selectedPlayer) {
+      alert('Please select a player first!');
+      return;
+    }
+
+    const initialLeagueMatches = leagueOpponents.map(o => ({ name: o.name, skill: o.skill, result: 'pending' }));
+    const initialLeagueData = {
+      currentMatchIndex: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      points: 0,
+      leagueMatches: initialLeagueMatches,
+    };
+
+    try {
+      const seasonMatch = await Match.create({
+        opponent_type: 'league_season',
+        match_type: 'league',
+        status: 'in_progress',
+        player_score: 0, // Placeholder for season points
+        opponent_score: 0, // Not applicable for season
+        rewards: [],
+        meta: initialLeagueData, // Store initial league data
+      });
+      setLeagueSeasonId(seasonMatch.id);
+      setLeagueData(initialLeagueData);
+      setCurrentMatch(null); // Clear previous match, a new one will be created for the first league game
+      setGameState('league_menu'); // Go to league menu to display schedule / start first match
+    } catch (error) {
+      console.error('Error starting league season:', error);
+      alert('Failed to start league season.');
+      setGameState('menu');
+    }
+  };
+
+  const startNextLeagueMatch = async () => {
+    if (!selectedPlayer || !leagueData || leagueData.currentMatchIndex >= leagueOpponents.length) {
+      alert('Cannot start next league match. Player not selected or league finished.');
+      setGameState('menu'); // Fallback to menu if invalid state
+      return;
+    }
+
+    const opponent = leagueOpponents[leagueData.currentMatchIndex];
+    setBotLevel(opponent.skill); // Set botLevel for PenaltyGame difficulty
+
+    setGameState('playing'); // Set to 'playing' for the PenaltyGame component
+    setMatchStats({ goals: 0, attempts: 0 });
+
+    try {
+      const match = await Match.create({
+        opponent_type: 'bot', // Individual league matches are against bots
+        opponent_id: opponent.name,
+        match_type: 'league',
+        meta: {
+          seasonId: leagueSeasonId, // Link to the overall season
+          opponentSkill: opponent.skill,
+          opponentName: opponent.name,
+        },
+      });
+      setCurrentMatch(match);
+    } catch (error) {
+      console.error('Error creating league match:', error);
+      alert('Failed to start league match.');
+      setGameState('league_menu');
+    }
+  };
+
+  const handleGoal = async () => {
+    const newStats = {
+      goals: matchStats.goals + 1,
+      attempts: matchStats.attempts + 1
+    };
+    setMatchStats(newStats);
+
+    // For practice/daily matches, immediately update user stats for goals_scored.
+    // For league matches, goals_scored will be summed up at finishLeagueMatch.
+    if (userStats && currentMatch && currentMatch.match_type !== 'league') {
+      await UserStats.update(userStats.id, {
+        goals_scored: userStats.goals_scored + 1
+      });
+      await loadUserData(); // Reload to show updated goals_scored immediately
+    }
+
+    checkMatchEnd(newStats);
+  };
+
+  const handleMiss = async () => {
+    const newStats = {
+      ...matchStats,
+      attempts: matchStats.attempts + 1
+    };
+    setMatchStats(newStats);
+    checkMatchEnd(newStats);
+  };
+
+  const handleSave = async () => {
+    const newStats = {
+      ...matchStats,
+      attempts: matchStats.attempts + 1
+    };
+    setMatchStats(newStats);
+    checkMatchEnd(newStats);
+  };
+
+  const checkMatchEnd = (stats) => {
+    if (stats.attempts >= 5) {
+      if (currentMatch && currentMatch.match_type === 'league') {
+        finishLeagueMatch(stats);
+      } else {
+        finishMatch(stats);
+      }
+    }
+  };
+
+  const finishMatch = async (finalStats) => { // For practice and daily challenges
+    let calculatedBotGoals;
+    if (botLevel === 1) { // Easy
+      calculatedBotGoals = Math.floor(Math.random() * 2) + 1; // 1 or 2 goals
+    } else if (botLevel === 2) { // Medium (for Daily Challenge also)
+      calculatedBotGoals = Math.floor(Math.random() * 2) + 2; // 2 or 3 goals
+    } else { // Hard (botLevel 3)
+      calculatedBotGoals = Math.floor(Math.random() * 2) + 3; // 3 or 4 goals
+    }
+    calculatedBotGoals = Math.min(calculatedBotGoals, 5); // Cap at 5 goals
+
+    const playerWon = finalStats.goals > calculatedBotGoals;
+
+    const baseCoins = 10;
+    const winBonus = playerWon ? 20 : 0;
+    const levelBonus = botLevel * 5;
+    const goalBonus = finalStats.goals * 3;
+    const playerBonus = selectedPlayer ? Math.floor((selectedPlayer.power + selectedPlayer.speed + selectedPlayer.accuracy) / 50) : 0;
+    const totalReward = baseCoins + winBonus + levelBonus + goalBonus + playerBonus;
+
+    if (currentMatch) {
+      await Match.update(currentMatch.id, {
+        status: 'completed',
+        player_score: finalStats.goals,
+        opponent_score: calculatedBotGoals,
+        rewards: [{
+          type: 'coins',
+          amount: totalReward
+        }]
+      });
+    }
+
+    if (userStats) {
+      const newStreak = playerWon ? userStats.current_streak + 1 : 0;
+      await UserStats.update(userStats.id, {
+        total_matches: userStats.total_matches + 1,
+        wins: userStats.wins + (playerWon ? 1 : 0),
+        losses: userStats.losses + (!playerWon ? 1 : 0),
+        goals_conceded: userStats.goals_conceded + calculatedBotGoals,
+        current_streak: newStreak,
+        best_streak: Math.max(userStats.best_streak, newStreak),
+        coins: userStats.coins + totalReward,
+        experience: userStats.experience + (playerWon ? 50 : 25)
+      });
+    }
+
+    setGameState('finished');
+    await loadUserData();
+  };
+
+  const finishLeagueMatch = async (finalStats) => {
+    if (!currentMatch || !leagueData || !leagueSeasonId) {
+      console.error("Missing match data for league finish.");
+      setGameState('menu'); // Fallback to menu
+      return;
+    }
+
+    const opponentSkill = currentMatch.meta.opponentSkill;
+    const calculatedBotGoals = Math.min(5, Math.floor(Math.random() * 2) + opponentSkill); // 1-2 for skill 1, 4-5 for skill 4 etc.
+
+    const playerWon = finalStats.goals > calculatedBotGoals;
+    const isDraw = finalStats.goals === calculatedBotGoals;
+    const pointsEarned = getPointsFromResult(finalStats.goals, calculatedBotGoals);
+
+    // Update individual match record
+    await Match.update(currentMatch.id, {
+      status: 'completed',
+      player_score: finalStats.goals,
+      opponent_score: calculatedBotGoals,
+      rewards: [], // Individual league matches don't give direct coins, season does
+    });
+
+    // Update overall league season data (in memory)
+    const updatedLeagueMatches = [...leagueData.leagueMatches];
+    if (leagueData.currentMatchIndex < updatedLeagueMatches.length) {
+      updatedLeagueMatches[leagueData.currentMatchIndex] = {
+        ...updatedLeagueMatches[leagueData.currentMatchIndex],
+        result: {
+          playerGoals: finalStats.goals,
+          opponentGoals: calculatedBotGoals,
+          outcome: playerWon ? 'win' : isDraw ? 'draw' : 'loss'
+        }
+      };
+    }
+
+    const newLeagueData = {
+      ...leagueData,
+      leagueMatches: updatedLeagueMatches,
+      currentMatchIndex: leagueData.currentMatchIndex + 1,
+      wins: leagueData.wins + (playerWon ? 1 : 0),
+      draws: leagueData.draws + (isDraw ? 1 : 0),
+      losses: leagueData.losses + (!playerWon && !isDraw ? 1 : 0),
+      points: leagueData.points + pointsEarned,
+    };
+    setLeagueData(newLeagueData);
+
+    // Update the overall league season match in backend
+    await Match.update(leagueSeasonId, { meta: newLeagueData });
+
+    // Update user's general stats for this individual league match
+    if (userStats) {
+        await UserStats.update(userStats.id, {
+            total_matches: userStats.total_matches + 1, // Increment total matches by 1 per league game
+            goals_scored: userStats.goals_scored + finalStats.goals,
+            goals_conceded: userStats.goals_conceded + calculatedBotGoals,
+            wins: userStats.wins + (playerWon ? 1 : 0),
+            losses: userStats.losses + (!playerWon && !isDraw ? 1 : 0),
+        });
+    }
+
+    // Determine if season is over
+    const seasonOver = (newLeagueData.currentMatchIndex) >= leagueOpponents.length;
+
+    if (seasonOver) {
+      // Calculate season rewards based on final leagueData
+      const seasonBonusCoins = newLeagueData.points * 5 + (newLeagueData.wins * 10);
+      const seasonExperience = newLeagueData.points * 10;
+      // Streak calculation for league: if perfect season (all wins), extend streak. Otherwise, reset for streak.
+      const newStreak = newLeagueData.wins === leagueOpponents.length ? userStats.current_streak + newLeagueData.wins : 0;
+
+      if (userStats) {
+        await UserStats.update(userStats.id, {
+          coins: userStats.coins + seasonBonusCoins,
+          experience: userStats.experience + seasonExperience,
+          current_streak: newStreak,
+          best_streak: Math.max(userStats.best_streak, newStreak),
+        });
+      }
+
+      // Mark season match as completed and add final rewards
+      await Match.update(leagueSeasonId, {
+        status: 'completed',
+        player_score: newLeagueData.points, // Store total points as player score for season
+        rewards: [{ type: 'coins', amount: seasonBonusCoins }],
+      });
+
+      setLastSeasonSummary({
+          points: newLeagueData.points,
+          wins: newLeagueData.wins,
+          draws: newLeagueData.draws,
+          losses: newLeagueData.losses,
+          bonusCoins: seasonBonusCoins,
+          experienceGained: seasonExperience,
+          totalMatchesPlayed: newLeagueData.currentMatchIndex
+      });
+      setGameState('league_season_finished');
+      setLeagueSeasonId(null); // Reset season ID for next season
+      setLeagueData(null); // Reset league data
+    } else {
+      setGameState('league_match_finished');
+    }
+
+    await loadUserData(); // Reload user stats to reflect coin/exp/general stat changes
+  };
+
+  const selectPlayerForMatch = () => {
+    if (availablePlayers.length === 0) {
+      alert('You need to collect striker cards first! Go to the Cards section to open packs.');
+      return;
+    }
+    setGameState('player_select');
+  };
+
+  const resetGame = () => {
+    setGameState('menu');
+    setCurrentMatch(null);
+    setMatchStats({ goals: 0, attempts: 0 });
+    setLeagueData(null); // Clear league data
+    setLeagueSeasonId(null); // Clear league season ID
+    setLastSeasonSummary(null); // Clear last season summary
+  };
+
+  // DAILY CHALLENGE LOGIC
+  const startDailyChallenge = async () => {
+    if (!selectedPlayer) {
+      alert('Please select a player first!');
+      return;
+    }
+
+    setBotLevel(2); // Medium difficulty for daily challenge
+    setGameState('playing');
+    setMatchStats({ goals: 0, attempts: 0 });
+
+    try {
+      const match = await Match.create({
+        opponent_type: 'bot',
+        opponent_id: 'daily_challenge',
+        match_type: 'daily_challenge',
+      });
+      setCurrentMatch(match);
+    } catch (error) {
+      console.error('Error creating daily challenge:', error);
+      alert('Failed to start daily challenge.');
+      setGameState('menu');
+    }
+  };
+
+  // TRAINING MODE LOGIC
+  const startTrainingMode = async () => {
+    if (!selectedPlayer) {
+      alert('Please select a player first!');
+      return;
+    }
+
+    setBotLevel(1); // Easy for training
+    setGameState('playing');
+    setMatchStats({ goals: 0, attempts: 0 });
+
+    try {
+      const match = await Match.create({
+        opponent_type: 'bot',
+        opponent_id: 'training_mode',
+        match_type: 'practice', // Training is a practice match
+      });
+      setCurrentMatch(match);
+    } catch (error) {
+      console.error('Error creating training match:', error);
+      alert('Failed to start training mode.');
+      setGameState('menu');
+    }
+  };
+
+  if (!user || !userStats) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Game Area */}
+          <div className="flex-1">
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader className="border-b border-purple-500/20">
+                <div className="flex justify-between items-center">
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Target className="w-6 h-6" />
+                    Penalty Shootout
+                  </CardTitle>
+                  {gameState === 'playing' && (
+                    <Badge className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+                        Goals: {matchStats.goals}/5 | Attempts: {matchStats.attempts}/5
+                    </Badge>
+                  )}
+                  {gameState === 'playing' && currentMatch && currentMatch.match_type === 'league' && leagueData && (
+                    <Badge className="bg-gradient-to-r from-purple-500 to-red-600 text-white">
+                        League Match {leagueData.currentMatchIndex + 1}/{leagueOpponents.length} vs {currentMatch.meta.opponentName}
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {/* Menu State */}
+                {gameState === 'menu' && (
+                  <div className="p-8 text-center">
+                    <h2 className="text-2xl font-bold text-white mb-6">Choose Your Opponent</h2>
+
+                    {selectedPlayer && (
+                      <div className="mb-6">
+                        <p className="text-purple-300 mb-3">Selected Player:</p>
+                        <div className="bg-black/30 rounded-lg p-4 max-w-sm mx-auto">
+                          <div className="text-white font-semibold">{selectedPlayer.name}</div>
+                          <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
+                            <div className="text-center">
+                              <div className="text-red-400 font-bold">{selectedPlayer.power}</div>
+                              <div className="text-gray-400">PWR</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-blue-400 font-bold">{selectedPlayer.speed}</div>
+                              <div className="text-gray-400">SPD</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-green-400 font-bold">{selectedPlayer.accuracy}</div>
+                              <div className="text-gray-400">ACC</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                      {[1, 2, 3].map((level) => (
+                        <Button
+                          key={`bot-level-${level}`}
+                          onClick={() => startMatch(level)}
+                          disabled={!selectedPlayer}
+                          className={`p-6 h-auto bg-gradient-to-r ${
+                            level === 1 ? 'from-green-500 to-emerald-600' :
+                            level === 2 ? 'from-yellow-500 to-orange-600' :
+                            'from-red-500 to-pink-600'
+                          }`}
+                        >
+                          <div className="text-center">
+                            <div className="text-lg font-bold">
+                              {level === 1 ? 'Easy' : level === 2 ? 'Medium' : 'Hard'}
+                            </div>
+                            <div className="text-sm opacity-80">
+                              Bot Level {level}
+                            </div>
+                            <div className="text-xs opacity-60 mt-1">
+                              Reward: +{10 + level * 5} coins
+                            </div>
+                          </div>
+                        </Button>
+                      ))}
+                    </div>
+
+                    <Button
+                      onClick={selectPlayerForMatch}
+                      variant="outline"
+                      className="bg-purple-600/20 border-purple-400 text-white hover:bg-purple-600/30"
+                    >
+                      <Users className="w-4 h-4 mr-2" />
+                      {selectedPlayer ? 'Change Player' : 'Select Player'}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Player Select State */}
+                {gameState === 'player_select' && (
+                  <div className="p-8">
+                    <h2 className="text-2xl font-bold text-white mb-6 text-center">Select Your Striker</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+                      {availablePlayers.map((player) => (
+                        <div
+                          key={player.id}
+                          onClick={() => setSelectedPlayer(player)}
+                          className={`cursor-pointer transition-all duration-200 ${
+                            selectedPlayer?.id === player.id
+                              ? 'ring-2 ring-blue-500 transform scale-105'
+                              : 'hover:scale-102'
+                          }`}
+                        >
+                          <PlayerCard player={player} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center">
+                      <Button
+                        onClick={() => setGameState('menu')}
+                        className="bg-gradient-to-r from-blue-500 to-purple-600 mr-2"
+                      >
+                        Confirm Selection
+                      </Button>
+                      <Button
+                        onClick={() => setGameState('menu')}
+                        variant="outline"
+                        className="border-gray-400 text-gray-300"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Playing State (Bot or Multiplayer or League Match) */}
+                {(gameState === 'playing') && (
+                  <PenaltyGame
+                    onGoal={handleGoal}
+                    onMiss={handleMiss}
+                    onSave={handleSave}
+                    isActive={true}
+                    selectedPlayer={selectedPlayer}
+                    botLevel={botLevel} // This will be dynamic based on practice/daily/league opponent skill
+                  />
+                )}
+
+                {/* Finished State (Bot Game) */}
+                {gameState === 'finished' && currentMatch && (
+                  <div className="p-8 text-center">
+                    <div className="mb-6">
+                      <Trophy className={`w-16 h-16 mx-auto mb-4 ${
+                        matchStats.goals > (currentMatch.opponent_score || 0) ? 'text-yellow-500' : 'text-gray-400'
+                      }`} />
+                      <h2 className="text-2xl font-bold text-white mb-2">
+                        {matchStats.goals > (currentMatch.opponent_score || 0) ? 'Victory!' : 'Defeat!'}
+                      </h2>
+                      <p className="text-purple-200">
+                        Final Score: {matchStats.goals} - {currentMatch.opponent_score || 0}
+                      </p>
+                    </div>
+
+                    <div className="bg-black/30 rounded-lg p-4 mb-6">
+                      <h3 className="text-white font-semibold mb-2">Match Stats</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="text-purple-200">
+                          <span>Goals Scored: </span>
+                          <span className="text-white font-bold">{matchStats.goals}/5</span>
+                        </div>
+                        <div className="text-purple-200">
+                          <span>Accuracy: </span>
+                          <span className="text-white font-bold">
+                            {matchStats.attempts > 0 ? Math.round((matchStats.goals / matchStats.attempts) * 100) : 0}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={resetGame} className="bg-gradient-to-r from-blue-500 to-purple-600">
+                      Play Again
+                    </Button>
+                  </div>
+                )}
+
+                {/* League Menu State */}
+                {gameState === 'league_menu' && leagueData && (
+                  <div className="p-8 text-center">
+                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center justify-center gap-2">
+                      <Shield className="w-7 h-7 text-blue-400" /> League Season
+                    </h2>
+
+                    <div className="bg-black/30 rounded-lg p-6 mb-6">
+                      <h3 className="text-white font-semibold mb-3 text-xl">Current Standings</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-purple-200">
+                        <div><span className="text-white font-bold">{leagueData.wins}</span> Wins</div>
+                        <div><span className="text-white font-bold">{leagueData.draws}</span> Draws</div>
+                        <div><span className="text-white font-bold">{leagueData.losses}</span> Losses</div>
+                        <div><span className="text-white font-bold">{leagueData.points}</span> Points</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-black/30 rounded-lg p-6 mb-6">
+                      <h3 className="text-white font-semibold mb-3 text-xl">Schedule</h3>
+                      <div className="space-y-2 text-left">
+                        {leagueData.leagueMatches.map((match, index) => (
+                          <div key={index} className={`flex justify-between items-center p-3 rounded-md ${
+                            index === leagueData.currentMatchIndex && match.result === 'pending' ? 'bg-purple-600/40 border border-purple-500' :
+                            match.result !== 'pending' && match.result.outcome === 'win' ? 'bg-green-600/30' :
+                            match.result !== 'pending' && match.result.outcome === 'draw' ? 'bg-yellow-600/30' :
+                            match.result !== 'pending' && match.result.outcome === 'loss' ? 'bg-red-600/30' :
+                            'bg-gray-700/20'
+                          }`}>
+                            <span className="text-white font-medium">{match.name}</span>
+                            {match.result === 'pending' ? (
+                              <Badge className="bg-gray-500/50 text-white">Upcoming</Badge>
+                            ) : (
+                              <span className="text-sm font-bold">
+                                {match.result.playerGoals} - {match.result.opponentGoals}
+                                <span className={`ml-2 ${
+                                  match.result.outcome === 'win' ? 'text-green-300' :
+                                  match.result.outcome === 'draw' ? 'text-yellow-300' :
+                                  'text-red-300'
+                                }`}>
+                                  ({match.result.outcome.toUpperCase()})
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={startNextLeagueMatch}
+                      disabled={leagueData.currentMatchIndex >= leagueOpponents.length}
+                      className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white mr-2"
+                    >
+                      {leagueData.currentMatchIndex < leagueOpponents.length ? 'Start Next Match' : 'Season Completed'}
+                    </Button>
+                    <Button
+                      onClick={resetGame}
+                      variant="outline"
+                      className="border-gray-400 text-gray-300"
+                    >
+                      Back to Main Menu
+                    </Button>
+                  </div>
+                )}
+
+                {/* League Match Finished State */}
+                {gameState === 'league_match_finished' && currentMatch && leagueData && (
+                  <div className="p-8 text-center">
+                    <div className="mb-6">
+                      <Trophy className={`w-16 h-16 mx-auto mb-4 ${
+                        matchStats.goals > (currentMatch.opponent_score || 0) ? 'text-yellow-500' :
+                        matchStats.goals === (currentMatch.opponent_score || 0) ? 'text-blue-500' :
+                        'text-gray-400'
+                      }`} />
+                      <h2 className="text-2xl font-bold text-white mb-2">
+                        {matchStats.goals > (currentMatch.opponent_score || 0) ? 'Match Won!' :
+                         matchStats.goals === (currentMatch.opponent_score || 0) ? 'Match Draw!' :
+                         'Match Lost!'}
+                      </h2>
+                      <p className="text-purple-200">
+                        Match Score: {matchStats.goals} - {currentMatch.opponent_score || 0}
+                      </p>
+                    </div>
+
+                    <div className="bg-black/30 rounded-lg p-4 mb-6">
+                      <h3 className="text-white font-semibold mb-2">League Progress</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="text-purple-200">
+                          <span>Current Record: </span>
+                          <span className="text-white font-bold">W:{leagueData.wins} D:{leagueData.draws} L:{leagueData.losses}</span>
+                        </div>
+                        <div className="text-purple-200">
+                          <span>Total Points: </span>
+                          <span className="text-white font-bold">{leagueData.points}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={() => setGameState('league_menu')} className="bg-gradient-to-r from-blue-500 to-purple-600">
+                      Continue League
+                    </Button>
+                  </div>
+                )}
+
+                {/* League Season Finished State */}
+                {gameState === 'league_season_finished' && lastSeasonSummary && (
+                  <div className="p-8 text-center">
+                    <div className="mb-6">
+                      <Award className={`w-16 h-16 mx-auto mb-4 text-yellow-400`} />
+                      <h2 className="text-3xl font-bold text-white mb-2">Season Concluded!</h2>
+                      <p className="text-purple-200 text-lg">Your final season record:</p>
+                      <p className="text-white text-xl font-bold">
+                        W:{lastSeasonSummary.wins} D:{lastSeasonSummary.draws} L:{lastSeasonSummary.losses}
+                      </p>
+                    </div>
+
+                    <div className="bg-black/30 rounded-lg p-4 mb-6">
+                      <h3 className="text-white font-semibold mb-2">Season Summary</h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="text-purple-200">
+                          <span>Total Points Earned: </span>
+                          <span className="text-white font-bold">{lastSeasonSummary.points}</span>
+                        </div>
+                        <div className="text-purple-200">
+                          <span>Coins Awarded: </span>
+                          <span className="text-yellow-400 font-bold">
+                            +{lastSeasonSummary.bonusCoins}
+                          </span>
+                        </div>
+                        <div className="text-purple-200">
+                          <span>Experience Gained: </span>
+                          <span className="text-green-400 font-bold">
+                            +{lastSeasonSummary.experienceGained}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={startLeagueSeason} className="bg-gradient-to-r from-green-500 to-emerald-600 mr-2">
+                      Start New Season
+                    </Button>
+                    <Button onClick={resetGame} variant="outline" className="border-gray-400 text-gray-300">
+                      Back to Main Menu
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Stats Sidebar */}
+          <div className="w-full lg:w-80 space-y-6">
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Star className="w-5 h-5" />
+                  Player Stats
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200">Level</span>
+                  <Badge className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+                    {userStats.level}
+                  </Badge>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-purple-200">Experience</span>
+                    <span className="text-white">{userStats.experience}/1000</span>
+                  </div>
+                  <Progress value={(userStats.experience % 1000) / 10} className="h-2" />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200">Coins</span>
+                  <div className="flex items-center gap-1 text-yellow-500">
+                    <Coins className="w-4 h-4" />
+                    <span className="font-bold">{userStats.coins}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.wins}</div>
+                    <div className="text-purple-200">Wins</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.losses}</div>
+                    <div className="text-purple-200">Losses</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.goals_scored}</div>
+                    <div className="text-purple-200">Goals</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.current_streak}</div>
+                    <div className="text-purple-200">Streak</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white">Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600"
+                    onClick={() => startMatch(1)}
+                    disabled={!selectedPlayer || gameState !== 'menu'}
+                >
+                    Quick Match (Easy Bot)
+                </Button>
+                <Button
+                    className="w-full bg-gradient-to-r from-purple-500 to-pink-600"
+                    onClick={startDailyChallenge}
+                    disabled={!selectedPlayer || gameState !== 'menu'}
+                >
+                    Daily Challenge
+                </Button>
+                <Button
+                    className="w-full bg-gradient-to-r from-blue-500 to-cyan-600"
+                    onClick={startTrainingMode}
+                    disabled={!selectedPlayer || gameState !== 'menu'}
+                >
+                    Training Mode
+                </Button>
+                <Button
+                    className="w-full bg-gradient-to-r from-indigo-500 to-purple-600"
+                    onClick={startLeagueSeason}
+                    disabled={!selectedPlayer || leagueData !== null || gameState !== 'menu'} // Disable if player not selected or league already in progress or not in main menu
+                >
+                    <Shield className="w-4 h-4 mr-2" /> Start League Season
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

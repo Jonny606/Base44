@@ -1,0 +1,566 @@
+import React, { useRef, useEffect, useState } from 'react';
+import * as THREE from 'three';
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Target, Zap, RotateCw, User } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+export default function PenaltyGame({ onGoal, onMiss, onSave, isActive = true, selectedPlayer = null, botLevel = 1 }) {
+  const mountRef = useRef(null);
+  const animationIdRef = useRef(null);
+  const ballRef = useRef(null);
+  const goalkeepetRef = useRef(null);
+  const cameraRef = useRef(null);
+  const accuracyZoneRef = useRef(null);
+  
+  const [power, setPower] = useState(0);
+  const [isCharging, setIsCharging] = useState(false);
+  const [chargingInterval, setChargingInterval] = useState(null);
+  const [direction, setDirection] = useState({ x: 0, y: 0 });
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [isSceneReady, setIsSceneReady] = useState(false);
+  const [accuracyZone, setAccuracyZone] = useState({ x: 0, y: 0, radius: 0.5 });
+
+  // Default player stats if none selected
+  const playerStats = selectedPlayer || {
+    name: "Default Player",
+    power: 50,
+    speed: 50,
+    accuracy: 50,
+    position: "striker"
+  };
+
+  useEffect(() => {
+    if (!mountRef.current) return;
+
+    let scene, camera, renderer;
+
+    const initScene = () => {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        mountRef.current.clientWidth / mountRef.current.clientHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 4, 10);
+      camera.lookAt(0, 2, -5);
+      cameraRef.current = camera;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.setClearColor(0x87CEEB);
+      
+      while (mountRef.current.firstChild) {
+        mountRef.current.removeChild(mountRef.current.firstChild);
+      }
+      mountRef.current.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(10, 15, 5);
+      directionalLight.castShadow = true;
+      directionalLight.shadow.mapSize.width = 2048;
+      directionalLight.shadow.mapSize.height = 2048;
+      scene.add(directionalLight);
+
+      // Stadium ground with markings
+      const groundGeometry = new THREE.PlaneGeometry(30, 20);
+      const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Penalty box marking
+      const penaltyBoxGeometry = new THREE.PlaneGeometry(10, 8);
+      const penaltyBoxMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xffffff, 
+        transparent: true, 
+        opacity: 0.2 
+      });
+      const penaltyBox = new THREE.Mesh(penaltyBoxGeometry, penaltyBoxMaterial);
+      penaltyBox.rotation.x = -Math.PI / 2;
+      penaltyBox.position.set(0, 0.01, -4);
+      scene.add(penaltyBox);
+
+      const postMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      
+      // WIDER GOAL - increased from 4 to 6 units each side (12 total width)
+      const postGeometry = new THREE.BoxGeometry(0.2, 5, 0.2); // LOWER HEIGHT - reduced from 8 to 5
+      const leftPost = new THREE.Mesh(postGeometry, postMaterial);
+      leftPost.position.set(-6, 2.5, -8); // moved further out
+      leftPost.castShadow = true;
+      scene.add(leftPost);
+
+      const rightPost = new THREE.Mesh(postGeometry, postMaterial);
+      rightPost.position.set(6, 2.5, -8); // moved further out
+      rightPost.castShadow = true;
+      scene.add(rightPost);
+
+      // WIDER CROSSBAR
+      const crossbarGeometry = new THREE.BoxGeometry(12.4, 0.2, 0.2); // increased width
+      const crossbar = new THREE.Mesh(crossbarGeometry, postMaterial);
+      crossbar.position.set(0, 5, -8); // lowered height
+      crossbar.castShadow = true;
+      scene.add(crossbar);
+
+      // Goal net - adjusted for new dimensions
+      const netGeometry = new THREE.PlaneGeometry(12, 5);
+      const netMaterial = new THREE.MeshBasicMaterial({
+        color: 0xcccccc,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide
+      });
+      const net = new THREE.Mesh(netGeometry, netMaterial);
+      net.position.set(0, 2.5, -8.1);
+      scene.add(net);
+
+      // Soccer Ball with better texture
+      const ballGeometry = new THREE.SphereGeometry(0.35, 32, 32);
+      
+      // Create procedural soccer ball texture
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      
+      // White base
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 512, 512);
+      
+      // Black pentagons
+      ctx.fillStyle = '#000000';
+      const centerX = 256, centerY = 256;
+      
+      // Draw pentagon pattern
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * Math.PI * 2) / 5;
+        const x = centerX + Math.cos(angle) * 80;
+        const y = centerY + Math.sin(angle) * 80;
+        
+        ctx.beginPath();
+        ctx.arc(x, y, 30, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // Central pentagon
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
+      ctx.fill();
+      
+      const ballTexture = new THREE.CanvasTexture(canvas);
+      const ballMaterial = new THREE.MeshStandardMaterial({ 
+        map: ballTexture,
+        roughness: 0.8, 
+        metalness: 0.1 
+      });
+      const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+      ball.position.set(0, 0.35, 3);
+      ball.castShadow = true;
+      ballRef.current = ball;
+      scene.add(ball);
+
+      // SMARTER GOALKEEPER
+      const goalkeepetGroup = new THREE.Group();
+      
+      // Taller goalkeeper for wider goal
+      const bodyGeometry = new THREE.CylinderGeometry(0.7, 0.5, 2.2);
+      const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.y = 1.3;
+      body.castShadow = true;
+      goalkeepetGroup.add(body);
+      
+      const headGeometry = new THREE.SphereGeometry(0.45, 16, 16);
+      const headMaterial = new THREE.MeshLambertMaterial({ color: 0xFFDBAE });
+      const head = new THREE.Mesh(headGeometry, headMaterial);
+      head.position.y = 3.0;
+      head.castShadow = true;
+      goalkeepetGroup.add(head);
+      
+      // Add goalkeeper gloves for better visibility
+      const gloveGeometry = new THREE.SphereGeometry(0.3, 8, 8);
+      const gloveMaterial = new THREE.MeshLambertMaterial({ color: 0x00FF00 });
+      
+      const leftGlove = new THREE.Mesh(gloveGeometry, gloveMaterial);
+      leftGlove.position.set(-0.8, 2.2, 0.3);
+      goalkeepetGroup.add(leftGlove);
+      
+      const rightGlove = new THREE.Mesh(gloveGeometry, gloveMaterial);
+      rightGlove.position.set(0.8, 2.2, 0.3);
+      goalkeepetGroup.add(rightGlove);
+      
+      goalkeepetGroup.position.set(0, 0, -7.5);
+      goalkeepetRef.current = goalkeepetGroup;
+      scene.add(goalkeepetGroup);
+
+      // VISUAL AIMING ZONE
+      const accuracyZoneGeometry = new THREE.RingGeometry(0.2, 0.5, 32);
+      const accuracyZoneMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x00ff00, 
+        transparent: true, 
+        opacity: 0.4, 
+        side: THREE.DoubleSide
+      });
+      const accuracyZoneMesh = new THREE.Mesh(accuracyZoneGeometry, accuracyZoneMaterial);
+      accuracyZoneMesh.rotation.x = -Math.PI / 2;
+      accuracyZoneMesh.position.z = -7.9;
+      accuracyZoneMesh.visible = false;
+      scene.add(accuracyZoneMesh);
+      accuracyZoneRef.current = accuracyZoneMesh;
+
+      setIsSceneReady(true);
+
+      const animate = () => {
+        animationIdRef.current = requestAnimationFrame(animate);
+        if (renderer && scene && camera) {
+          renderer.render(scene, camera);
+        }
+      };
+      animate();
+    };
+
+    initScene();
+
+    const handleResize = () => {
+      if (mountRef.current && cameraRef.current && renderer) {
+        const width = mountRef.current.clientWidth;
+        const height = mountRef.current.clientHeight;
+        cameraRef.current.aspect = width / height;
+        cameraRef.current.updateProjectionMatrix();
+        renderer.setSize(width, height);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current);
+      if (mountRef.current && renderer?.domElement) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      if (renderer) renderer.dispose();
+    };
+  }, []);
+
+  const shootBall = () => {
+    if (!isActive || isAnimating || !ballRef.current || !goalkeepetRef.current || !isSceneReady) return;
+
+    setIsAnimating(true);
+    if (accuracyZoneRef.current) accuracyZoneRef.current.visible = false;
+
+    const ball = ballRef.current;
+    const goalkeeper = goalkeepetRef.current;
+    const camera = cameraRef.current;
+    
+    // PLAYER-BASED ACCURACY SYSTEM
+    const accuracyFactor = playerStats.accuracy / 100;
+    const powerFactor = Math.max(0.2, (power / 100) * (playerStats.power / 100));
+    const speedFactor = playerStats.speed / 100;
+
+    // Calculate accuracy deviation - higher accuracy = less deviation
+    const maxDeviation = (1 - accuracyFactor) * 1.5; // Reduced max deviation to make it more accurate
+    const deviationX = (Math.random() - 0.5) * maxDeviation;
+    const deviationY = (Math.random() - 0.5) * maxDeviation * 0.5;
+
+    // Apply accuracy to intended direction
+    const adjustedDirection = {
+      x: direction.x + deviationX,
+      y: direction.y + deviationY
+    };
+
+    // Enhanced Physics Parameters
+    const GRAVITY = 18; // Increased gravity for a more powerful feel
+    const BASE_SPEED = 40; // Increased base speed
+    const MAX_SPEED_BOOST = 30; // Increased speed boost
+    const MIN_LIFT = 1.5;
+    const MAX_LIFT_RATIO = 0.6;
+
+    // Calculate Initial Velocity with player stats
+    const totalSpeed = BASE_SPEED + (MAX_SPEED_BOOST * speedFactor);
+    const initialVelocity = new THREE.Vector3();
+    initialVelocity.x = adjustedDirection.x * totalSpeed * powerFactor * 0.8;
+    initialVelocity.y = (Math.abs(adjustedDirection.y) * totalSpeed * MAX_LIFT_RATIO + MIN_LIFT) * powerFactor;
+    initialVelocity.z = -totalSpeed * powerFactor;
+
+    // Curve calculation
+    const curve = adjustedDirection.x * 15 * powerFactor * speedFactor; // Increased curve effect
+
+    // FIXED GOALKEEPER AI - Bot level affects difficulty
+    const gkDifficulty = Math.min(botLevel, 3); // Cap at level 3
+    const reactionTime = Math.max(0.15, 0.8 - (gkDifficulty * 0.2)); // Quicker reaction time
+    const predictedX = initialVelocity.x * 0.35; // Better prediction
+    const predictionError = (Math.random() - 0.5) * (3 - gkDifficulty); // Less error at higher levels
+    
+    let goalkeepetTargetX = Math.max(-5.5, Math.min(5.5, predictedX + predictionError));
+    
+    // GK speed based on difficulty
+    const gkSpeed = 8 + (gkDifficulty * 4); // Faster movement
+    
+    // Camera animation
+    const initialCamPos = camera.position.clone();
+    const shotCamPos = new THREE.Vector3(adjustedDirection.x * 2, 4.5, 8.5);
+
+    let startTime = performance.now();
+    const originalBallPosition = ball.position.clone();
+    const originalGkPosition = goalkeeper.position.clone();
+    let gkReactionStarted = false;
+
+    const animatePhysics = () => {
+      const currentTime = performance.now();
+      const deltaTime = (currentTime - startTime) / 1000;
+      startTime = currentTime; // Update start time for next frame
+
+      // Update ball position
+      ball.position.add(initialVelocity.clone().multiplyScalar(deltaTime));
+      
+      // Apply gravity
+      initialVelocity.y -= GRAVITY * deltaTime;
+
+      // Apply curve
+      initialVelocity.x += curve * deltaTime * 0.6;
+
+      // Ball rotation
+      ball.rotation.x -= initialVelocity.z * deltaTime * 0.15;
+      ball.rotation.z += initialVelocity.x * deltaTime * 0.12;
+
+      // Dynamic camera following
+      const shotProgress = Math.min(1, deltaTime * 2);
+      camera.position.lerp(shotCamPos, shotProgress * 0.05); // Smoother camera
+      camera.lookAt(ball.position.x, ball.position.y + 1, ball.position.z - 2);
+
+      // FIXED GOALKEEPER AI - NOW MOVES!
+      const timeFromShot = (performance.now() - (startTime - deltaTime*1000))/1000;
+      if (timeFromShot > reactionTime && !gkReactionStarted) {
+        gkReactionStarted = true;
+        // Update target based on current ball position
+        const currentBallX = ball.position.x;
+        const predictedFinalX = currentBallX + (initialVelocity.x * 0.3);
+        goalkeepetTargetX = Math.max(-5.5, Math.min(5.5, predictedFinalX + predictionError));
+      }
+
+      // Move goalkeeper smoothly
+      if (gkReactionStarted) {
+        const distance = goalkeepetTargetX - goalkeeper.position.x;
+        if (Math.abs(distance) > 0.1) {
+          const moveSpeed = Math.min(gkSpeed * deltaTime, Math.abs(distance));
+          goalkeeper.position.x += Math.sign(distance) * moveSpeed;
+          
+          // Diving animation
+          const diveIntensity = Math.min(1, Math.abs(distance) / 3);
+          goalkeeper.rotation.z = -Math.sign(distance) * diveIntensity * 0.3;
+          
+          // Move gloves
+          if (goalkeeper.children[2]) goalkeeper.children[2].position.x = -0.8 + Math.sign(distance) * diveIntensity * 0.5;
+          if (goalkeeper.children[3]) goalkeeper.children[3].position.x = 0.8 + Math.sign(distance) * diveIntensity * 0.5;
+        }
+      }
+
+      const ballRadius = 0.35;
+
+      // Check if ball reached goal line
+      if (ball.position.z <= -8) {
+        const finalX = ball.position.x;
+        const finalY = ball.position.y;
+        const goalkeepetX = goalkeeper.position.x;
+        
+        // Enhanced collision detection
+        const gkReachX = 1.8;
+        const gkReachY = 4.0;
+        const isSaved = Math.abs(finalX - goalkeepetX) < gkReachX && 
+                       finalY > 0 && finalY < gkReachY;
+        
+        // Goal detection for wider goal (12 units wide, 5 units tall)
+        const isInGoal = finalY > 0 && finalY < 5 && Math.abs(finalX) < 6;
+
+        let result;
+        if (isInGoal && !isSaved) {
+          result = 'goal';
+          onGoal?.();
+        } else if (isInGoal && isSaved) {
+          result = 'save';
+          onSave?.();
+        } else {
+          result = 'miss';
+          onMiss?.();
+        }
+
+        // Reset after 2 seconds
+        setTimeout(() => {
+          ball.position.copy(originalBallPosition);
+          goalkeeper.position.copy(originalGkPosition);
+          goalkeeper.rotation.z = 0;
+          
+          // Reset glove positions
+          if (goalkeeper.children[2]) goalkeeper.children[2].position.x = -0.8;
+          if (goalkeeper.children[3]) goalkeeper.children[3].position.x = 0.8;
+          
+          camera.position.copy(initialCamPos);
+          camera.lookAt(0, 2, -5);
+          setIsAnimating(false);
+          setPower(0);
+        }, 2000);
+        
+        return;
+      }
+      
+      // Ground collision
+      if (ball.position.y <= ballRadius) {
+        ball.position.y = ballRadius;
+        initialVelocity.y *= -0.7;
+        initialVelocity.x *= 0.85;
+        initialVelocity.z *= 0.85;
+      }
+
+      requestAnimationFrame(animatePhysics);
+    };
+    
+    startTime = performance.now();
+    animatePhysics();
+  };
+
+  const handleMouseMove = (event) => {
+    if (!mountRef.current || isAnimating) return;
+    
+    const rect = mountRef.current.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    setDirection({ x, y });
+
+    // Calculate accuracy zone based on player stats
+    const baseRadius = 0.8;
+    const accuracyRadius = baseRadius * (1 - playerStats.accuracy / 150);
+    setAccuracyZone({ x, y, radius: accuracyRadius });
+
+    // Update visual accuracy zone
+    if (accuracyZoneRef.current && cameraRef.current) {
+      accuracyZoneRef.current.position.set(x * 4, 2.5, -7.9);
+      accuracyZoneRef.current.visible = true;
+    }
+  };
+
+  const startCharging = () => {
+    if (isAnimating || isCharging) return;
+    
+    setIsCharging(true);
+    setPower(0);
+    
+    const chargeSpeed = 3 + (playerStats.speed / 50);
+    const interval = setInterval(() => {
+      setPower(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + chargeSpeed;
+      });
+    }, 50);
+    
+    setChargingInterval(interval);
+  };
+
+  const stopCharging = () => {
+    if (!isCharging || isAnimating) return;
+    
+    if (chargingInterval) {
+      clearInterval(chargingInterval);
+      setChargingInterval(null);
+    }
+    
+    setIsCharging(false);
+    shootBall();
+  };
+
+  return (
+    <div className="relative w-full h-full bg-gradient-to-b from-blue-400 to-green-400 rounded-lg overflow-hidden">
+      <div 
+        ref={mountRef} 
+        className="w-full h-96 cursor-crosshair"
+        onMouseMove={handleMouseMove}
+        onMouseDown={startCharging}
+        onMouseUp={stopCharging}
+        onMouseLeave={stopCharging}
+        style={{ minHeight: '400px' }}
+      />
+      
+      {!isSceneReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-blue-400">
+          <div className="text-white text-xl">Loading 3D Scene...</div>
+        </div>
+      )}
+      
+      <div className="absolute top-4 left-4 bg-black/60 text-white rounded-lg p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <User className="w-4 h-4" />
+          <span className="font-semibold">{playerStats.name}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="text-center">
+            <div className="text-red-400 font-bold">{playerStats.power}</div>
+            <div className="text-gray-400">PWR</div>
+          </div>
+          <div className="text-center">
+            <div className="text-blue-400 font-bold">{playerStats.speed}</div>
+            <div className="text-gray-400">SPD</div>
+          </div>
+          <div className="text-center">
+            <div className="text-green-400 font-bold">{playerStats.accuracy}</div>
+            <div className="text-gray-400">ACC</div>
+          </div>
+        </div>
+      </div>
+      
+      <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <Badge variant="outline" className="bg-black/60 text-white border-white/30">
+            <Target className="w-4 h-4 mr-1" />
+            Aim: {direction.x.toFixed(1)}, {direction.y.toFixed(1)}
+          </Badge>
+          {(isCharging || power > 0) && (
+            <Badge variant="outline" className="bg-black/60 text-white border-white/30">
+              <Zap className="w-4 h-4 mr-1" />
+              Power: {Math.round(power)}%
+            </Badge>
+          )}
+          <Badge variant="outline" className="bg-black/60 text-green-300 border-green-400/30">
+            Accuracy: {playerStats.accuracy}%
+          </Badge>
+        </div>
+        
+        <Button
+          onClick={startCharging}
+          disabled={isAnimating}
+          className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+        >
+          {isAnimating ? (
+            <>
+              <RotateCw className="w-4 h-4 mr-2 animate-spin" />
+              Shooting...
+            </>
+          ) : (
+            'Hold to Shoot'
+          )}
+        </Button>
+      </div>
+      
+      {isCharging && (
+        <div className="absolute bottom-16 left-4 right-4">
+          <Progress value={power} className="h-3 bg-black/30" />
+          <div className="text-center text-white text-sm mt-1">
+            Release to shoot with {Math.round(power * (playerStats.power / 100))}% effective power
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

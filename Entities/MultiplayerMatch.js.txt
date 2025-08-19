@@ -1,0 +1,99 @@
+{
+  "name": "MultiplayerMatch",
+  "type": "object",
+  "properties": {
+    "room_id": {
+      "type": "string",
+      "description": "Unique room identifier"
+    },
+    "player1_id": {
+      "type": "string",
+      "description": "First player's user ID"
+    },
+    "player2_id": {
+      "type": "string",
+      "description": "Second player's user ID (null while waiting)"
+    },
+    "player1_ready": {
+      "type": "boolean",
+      "default": false,
+      "description": "Player 1 ready status"
+    },
+    "player2_ready": {
+      "type": "boolean",
+      "default": false,
+      "description": "Player 2 ready status"
+    },
+    "current_turn": {
+      "type": "string",
+      "enum": [
+        "player1",
+        "player2"
+      ],
+      "default": "player1",
+      "description": "Whose turn it is to shoot"
+    },
+    "player1_score": {
+      "type": "integer",
+      "default": 0,
+      "description": "Player 1's score"
+    },
+    "player2_score": {
+      "type": "integer",
+      "default": 0,
+      "description": "Player 2's score"
+    },
+    "round": {
+      "type": "integer",
+      "default": 1,
+      "description": "Current round (1-5)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "waiting",
+        "playing",
+        "finished"
+      ],
+      "default": "waiting",
+      "description": "Match status"
+    },
+    "winner": {
+      "type": "string",
+      "description": "Winner's user ID when match is finished"
+    },
+    "shots_taken": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "player_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "goal",
+              "miss",
+              "save"
+            ]
+          },
+          "round": {
+            "type": "integer"
+          }
+        }
+      },
+      "default": [],
+      "description": "History of all shots taken"
+    }
+  },
+  "required": [
+    "room_id",
+    "player1_id"
+  ],
+  "rls": {
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}

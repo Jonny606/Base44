@@ -1,0 +1,316 @@
+import React, { useState, useEffect } from 'react';
+import { User, UserStats, Match } from '@/entities/all';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, Users, Star, Clock, Coins } from 'lucide-react';
+
+const TOURNAMENTS = [
+  {
+    id: 'bronze_cup',
+    name: 'Bronze Cup',
+    entry_fee: 25,
+    max_players: 8,
+    rounds: 3,
+    rewards: { winner: 200, runner_up: 100, semifinal: 50 },
+    difficulty: 'Easy'
+  },
+  {
+    id: 'silver_cup',
+    name: 'Silver Cup',
+    entry_fee: 50,
+    max_players: 16,
+    rounds: 4,
+    rewards: { winner: 500, runner_up: 250, semifinal: 125 },
+    difficulty: 'Medium'
+  },
+  {
+    id: 'gold_cup',
+    name: 'Gold Cup',
+    entry_fee: 100,
+    max_players: 32,
+    rounds: 5,
+    rewards: { winner: 1200, runner_up: 600, semifinal: 300 },
+    difficulty: 'Hard'
+  }
+];
+
+export default function TournamentPage() {
+  const [user, setUser] = useState(null);
+  const [userStats, setUserStats] = useState(null);
+  const [activeTournaments, setActiveTournaments] = useState([]);
+  const [completedTournaments, setCompletedTournaments] = useState([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const userData = await User.me();
+      setUser(userData);
+      
+      const statsData = await UserStats.list();
+      if (statsData.length > 0) {
+        setUserStats(statsData[0]);
+      }
+      
+      // Load tournament matches
+      const matches = await Match.filter({ match_type: 'tournament' });
+      const active = matches.filter(m => m.status === 'active');
+      const completed = matches.filter(m => m.status === 'completed');
+      
+      setActiveTournaments(active);
+      setCompletedTournaments(completed);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    }
+  };
+
+  const joinTournament = async (tournament) => {
+    if (!userStats || userStats.coins < tournament.entry_fee) return;
+    
+    // Deduct entry fee
+    await UserStats.update(userStats.id, {
+      coins: userStats.coins - tournament.entry_fee
+    });
+    
+    // Create tournament match
+    await Match.create({
+      opponent_type: 'bot',
+      opponent_id: `tournament_${tournament.id}`,
+      match_type: 'tournament',
+      rewards: [
+        { type: 'coins', amount: tournament.rewards.winner }
+      ]
+    });
+    
+    await loadData();
+  };
+
+  const getTournamentStatus = (tournament) => {
+    const active = activeTournaments.find(t => t.opponent_id === `tournament_${tournament.id}`);
+    return active ? 'joined' : 'available';
+  };
+
+  if (!user || !userStats) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">Tournament Arena</h1>
+            <p className="text-purple-300">Compete against players worldwide</p>
+          </div>
+          <div className="flex items-center gap-2 bg-black/30 backdrop-blur-md rounded-lg px-4 py-2 border border-purple-500/20">
+            <Coins className="w-5 h-5 text-yellow-500" />
+            <span className="text-white font-bold">{userStats.coins}</span>
+            <span className="text-purple-300">coins</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Available Tournaments */}
+          <div className="lg:col-span-2">
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20 mb-6">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Trophy className="w-6 h-6" />
+                  Active Tournaments
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {TOURNAMENTS.map((tournament) => {
+                  const status = getTournamentStatus(tournament);
+                  const canAfford = userStats.coins >= tournament.entry_fee;
+                  
+                  return (
+                    <Card key={tournament.id} className="bg-black/30 border border-purple-500/30">
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-xl font-bold text-white">{tournament.name}</h3>
+                            <p className="text-purple-300">{tournament.max_players} players • {tournament.rounds} rounds</p>
+                          </div>
+                          <Badge className={`${
+                            tournament.difficulty === 'Easy' ? 'bg-green-500' :
+                            tournament.difficulty === 'Medium' ? 'bg-yellow-500' :
+                            'bg-red-500'
+                          } text-white`}>
+                            {tournament.difficulty}
+                          </Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+                          <div className="text-center">
+                            <div className="text-yellow-500 font-bold text-lg">
+                              {tournament.rewards.winner}
+                            </div>
+                            <div className="text-purple-300">Winner</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-gray-400 font-bold text-lg">
+                              {tournament.rewards.runner_up}
+                            </div>
+                            <div className="text-purple-300">Runner-up</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-bronze-500 font-bold text-lg">
+                              {tournament.rewards.semifinal}
+                            </div>
+                            <div className="text-purple-300">Semifinal</div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2 text-purple-300">
+                            <Coins className="w-4 h-4" />
+                            <span>Entry: {tournament.entry_fee} coins</span>
+                          </div>
+                          
+                          {status === 'joined' ? (
+                            <Badge className="bg-blue-500 text-white">
+                              <Clock className="w-4 h-4 mr-1" />
+                              In Progress
+                            </Badge>
+                          ) : (
+                            <Button
+                              onClick={() => joinTournament(tournament)}
+                              disabled={!canAfford}
+                              className={`${
+                                canAfford 
+                                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
+                                  : 'bg-gray-600'
+                              }`}
+                            >
+                              {canAfford ? 'Join Tournament' : 'Not Enough Coins'}
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </CardContent>
+            </Card>
+            
+            {/* Tournament History */}
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white">Tournament History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {completedTournaments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Trophy className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                    <p className="text-purple-300">No tournament history yet</p>
+                    <p className="text-gray-400 text-sm">Join a tournament to see your results here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {completedTournaments.map((match) => (
+                      <div key={match.id} className="flex justify-between items-center p-3 bg-black/30 rounded-lg">
+                        <div>
+                          <div className="text-white font-medium">Gold Cup Tournament</div>
+                          <div className="text-sm text-purple-300">
+                            Score: {match.player_score} - {match.opponent_score}
+                          </div>
+                        </div>
+                        <Badge className={match.player_score > match.opponent_score ? 'bg-green-500' : 'bg-red-500'}>
+                          {match.player_score > match.opponent_score ? 'Won' : 'Lost'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Tournament Info Sidebar */}
+          <div className="space-y-6">
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Star className="w-5 h-5" />
+                  Tournament Rules
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="text-purple-200">
+                  <strong>Format:</strong> Single elimination knockout
+                </div>
+                <div className="text-purple-200">
+                  <strong>Rounds:</strong> Best of 5 penalties per match
+                </div>
+                <div className="text-purple-200">
+                  <strong>Tiebreaker:</strong> Sudden death penalty shootout
+                </div>
+                <div className="text-purple-200">
+                  <strong>Rewards:</strong> Distributed based on final placement
+                </div>
+                <div className="text-purple-200">
+                  <strong>Entry:</strong> Pay coins to join, non-refundable
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white">Your Stats</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.wins}</div>
+                    <div className="text-purple-300">Total Wins</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.current_streak}</div>
+                    <div className="text-purple-300">Win Streak</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.goals_scored}</div>
+                    <div className="text-purple-300">Goals Scored</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white font-bold text-lg">{userStats.level}</div>
+                    <div className="text-purple-300">Level</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white">Daily Challenge</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center space-y-3">
+                  <div className="w-12 h-12 mx-auto bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
+                    <Star className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-white font-semibold">Perfect Accuracy</h4>
+                    <p className="text-sm text-purple-300">Score 5/5 penalties in a match</p>
+                  </div>
+                  <div className="text-yellow-500 font-bold">Reward: 100 coins</div>
+                  <Button className="w-full bg-gradient-to-r from-yellow-500 to-orange-600">
+                    Start Challenge
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

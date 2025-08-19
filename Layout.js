@@ -1,0 +1,127 @@
+
+import React from "react";
+import { Link, useLocation } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Trophy, Users, Gamepad2, CreditCard, Settings, ShoppingCart, ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarHeader,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+
+const navigationItems = [
+  {
+    title: "Game",
+    url: createPageUrl("Game"),
+    icon: Gamepad2,
+  },
+  {
+    title: "Cards",
+    url: createPageUrl("Cards"),
+    icon: CreditCard,
+  },
+  {
+    title: "Shop",
+    url: createPageUrl("Shop"),
+    icon: ShoppingCart,
+  },
+  {
+    title: "Multiplayer",
+    url: createPageUrl("Multiplayer"),
+    icon: Users,
+  },
+  {
+    title: "Leagues",
+    url: createPageUrl("Leagues"),
+    icon: ShieldCheck,
+  },
+  {
+    title: "Tournament",
+    url: createPageUrl("Tournament"),
+    icon: Trophy,
+  },
+];
+
+export default function Layout({ children, currentPageName }) {
+  const location = useLocation();
+
+  return (
+    <SidebarProvider>
+      <style>
+        {`
+          :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --game-bg: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #2d1b69 100%);
+          }
+        `}
+      </style>
+      <div className="min-h-screen flex w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <Sidebar className="border-r border-purple-500/20 bg-black/20 backdrop-blur-md">
+          <SidebarHeader className="border-b border-purple-500/20 p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                <Trophy className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-white text-lg">PenaltyPro</h2>
+                <p className="text-xs text-purple-300">Elite Soccer Game</p>
+              </div>
+            </div>
+          </SidebarHeader>
+          
+          <SidebarContent className="p-2">
+            <SidebarGroup>
+              <SidebarGroupLabel className="text-xs font-medium text-purple-300 uppercase tracking-wider px-3 py-2">
+                Game Modes
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {navigationItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton 
+                        asChild 
+                        className={`hover:bg-purple-500/20 hover:text-white transition-all duration-300 rounded-lg mb-1 ${
+                          location.pathname === item.url ? 'bg-purple-500/30 text-white shadow-lg' : 'text-purple-200'
+                        }`}
+                      >
+                        <Link to={item.url} className="flex items-center gap-3 px-3 py-3">
+                          <item.icon className="w-5 h-5" />
+                          <span className="font-medium">{item.title}</span>
+                          {item.title === 'Leagues' && <Badge className="text-xs bg-yellow-500 text-black">Soon</Badge>}
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+
+        <main className="flex-1 flex flex-col">
+          <header className="bg-black/20 backdrop-blur-md border-b border-purple-500/20 px-6 py-4 md:hidden">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="hover:bg-purple-500/20 p-2 rounded-lg transition-colors duration-200 text-white" />
+              <h1 className="text-xl font-bold text-white">PenaltyPro</h1>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+    </SidebarProvider>
+  );
+}

@@ -1,0 +1,358 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { User, UserStats, PlayerCard as PlayerCardEntity } from '@/entities/all';
+import * as THREE from 'three';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ShieldCheck, Trophy, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Pause, Play } from 'lucide-react';
+
+// This function creates a blocky, humanoid player model
+const createPlayerModel = (color) => {
+  const playerGroup = new THREE.Group();
+  const playerMaterial = new THREE.MeshLambertMaterial({ color });
+
+  // Torso
+  const torsoGeometry = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+  const torso = new THREE.Mesh(torsoGeometry, playerMaterial);
+  torso.position.y = 0.6;
+  torso.castShadow = true;
+  playerGroup.add(torso);
+
+  // Head
+  const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+  const head = new THREE.Mesh(headGeometry, playerMaterial);
+  head.position.y = 1.5;
+  head.castShadow = true;
+  playerGroup.add(head);
+
+  // Legs
+  const legGeometry = new THREE.BoxGeometry(0.3, 1, 0.3);
+  const leftLeg = new THREE.Mesh(legGeometry, playerMaterial);
+  leftLeg.position.set(-0.25, -0.5, 0);
+  playerGroup.add(leftLeg);
+
+  const rightLeg = new THREE.Mesh(legGeometry, playerMaterial);
+  rightLeg.position.set(0.25, -0.5, 0);
+  playerGroup.add(rightLeg);
+  
+  playerGroup.scale.set(1.2, 1.2, 1.2);
+
+  return playerGroup;
+};
+
+export default function LeaguesPage() {
+  const mountRef = useRef(null);
+  const animationIdRef = useRef(null);
+  
+  const [user, setUser] = useState(null);
+  const [userStats, setUserStats] = useState(null);
+  const [userCards, setUserCards] = useState([]);
+
+  // Game state
+  const [gameState, setGameState] = useState('menu'); // menu, playing, paused, finished
+  const [score, setScore] = useState({ player: 0, opponent: 0 });
+  const [gameTime, setGameTime] = useState(90);
+  const gameTimeRef = useRef(90); // Ref to use inside animation loop
+  const [isSceneReady, setIsSceneReady] = useState(false);
+
+  // Refs for Three.js objects and state
+  const sceneRef = useRef(new THREE.Scene());
+  const cameraRef = useRef(null);
+  const rendererRef = useRef(null);
+  const ballRef = useRef(null);
+  const playersRef = useRef([]);
+  const controlsRef = useRef({ up: false, down: false, left: false, right: false });
+  const controlledPlayerIndex = 5; // User controls the central midfielder
+
+  useEffect(() => {
+    loadData();
+    
+    const handleKeyDown = (event) => {
+      updateControls(event.key, true);
+    };
+    const handleKeyUp = (event) => {
+      updateControls(event.key, false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current);
+    };
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const userData = await User.me();
+      setUser(userData);
+      
+      const statsData = await UserStats.list();
+      if (statsData.length > 0) setUserStats(statsData[0]);
+
+      const cards = await PlayerCardEntity.list();
+      setUserCards(cards);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    }
+  };
+  
+  const updateControls = (key, value) => {
+    switch (key.toLowerCase()) {
+      case 'w': case 'arrowup': controlsRef.current.up = value; break;
+      case 's': case 'arrowdown': controlsRef.current.down = value; break;
+      case 'a': case 'arrowleft': controlsRef.current.left = value; break;
+      case 'd': case 'arrowright': controlsRef.current.right = value; break;
+    }
+  };
+
+  useEffect(() => {
+    if (gameState === 'playing') {
+      const timerInterval = setInterval(() => {
+        gameTimeRef.current -= 1;
+        setGameTime(gameTimeRef.current);
+        if (gameTimeRef.current <= 0) {
+          clearInterval(timerInterval);
+          setGameState('finished');
+        }
+      }, 1000);
+      return () => clearInterval(timerInterval);
+    }
+  }, [gameState]);
+
+
+  const init3DScene = () => {
+    if (!mountRef.current || isSceneReady) return;
+
+    // Basic setup
+    const scene = sceneRef.current;
+    scene.background = new THREE.Color(0x348C31);
+    const camera = new THREE.PerspectiveCamera(60, mountRef.current.clientWidth / mountRef.current.clientHeight, 0.1, 1000);
+    camera.position.set(0, 30, 20);
+    camera.lookAt(0, 0, 0);
+    cameraRef.current = camera;
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+    renderer.shadowMap.enabled = true;
+    rendererRef.current = renderer;
+    mountRef.current.appendChild(renderer.domElement);
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(10, 20, 5);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+
+    // Field
+    const fieldWidth = 45;
+    const fieldHeight = 65;
+    const fieldGeometry = new THREE.PlaneGeometry(fieldWidth, fieldHeight);
+    const fieldMaterial = new THREE.MeshLambertMaterial({ color: 0x348C31 });
+    const field = new THREE.Mesh(fieldGeometry, fieldMaterial);
+    field.rotation.x = -Math.PI / 2;
+    field.receiveShadow = true;
+    scene.add(field);
+
+    // Goals
+    const goalMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const goalWidth = 10;
+    const goalHeight = 4;
+    const createGoal = (zPos) => {
+      const goal = new THREE.Group();
+      const postGeo = new THREE.BoxGeometry(0.2, goalHeight, 0.2);
+      const leftPost = new THREE.Mesh(postGeo, goalMaterial);
+      leftPost.position.set(-goalWidth / 2, goalHeight / 2, zPos);
+      const rightPost = new THREE.Mesh(postGeo, goalMaterial);
+      rightPost.position.set(goalWidth / 2, goalHeight / 2, zPos);
+      const crossbarGeo = new THREE.BoxGeometry(goalWidth, 0.2, 0.2);
+      const crossbar = new THREE.Mesh(crossbarGeo, goalMaterial);
+      crossbar.position.set(0, goalHeight, zPos);
+      goal.add(leftPost, rightPost, crossbar);
+      return goal;
+    };
+    scene.add(createGoal(fieldHeight / 2));
+    scene.add(createGoal(-fieldHeight / 2));
+
+    // Ball
+    const ballGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+    const ballMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+    ball.position.y = 0.3;
+    ball.castShadow = true;
+    ball.userData.velocity = new THREE.Vector3();
+    ballRef.current = ball;
+    scene.add(ball);
+
+    // Players
+    const players = [];
+    const playerPositions = [
+      { x: 0, z: -28 }, // GK
+      { x: -10, z: -18 }, { x: 10, z: -18 }, // DEF
+      { x: -5, z: -8 }, { x: 5, z: -8 }, // DEF
+      { x: 0, z: 0 }, // MID (Controlled)
+      { x: -12, z: 5 }, { x: 12, z: 5 }, // MID
+      { x: -7, z: 18 }, { x: 7, z: 18 }, // FWD
+      { x: 0, z: 25 } // FWD
+    ];
+
+    // User Team (Blue)
+    playerPositions.forEach((pos, i) => {
+      const color = i === controlledPlayerIndex ? 0x00ff00 : 0x0066ff;
+      const player = createPlayerModel(color);
+      player.position.set(pos.x, 1, pos.z);
+      player.castShadow = true;
+      players.push(player);
+      scene.add(player);
+    });
+
+    // Opponent Team (Red)
+    playerPositions.forEach(pos => {
+      const player = createPlayerModel(0xff0000);
+      player.position.set(-pos.x, 1, -pos.z);
+      player.castShadow = true;
+      players.push(player);
+      scene.add(player);
+    });
+    playersRef.current = players;
+    
+    setIsSceneReady(true);
+    animate();
+  };
+  
+  const animate = () => {
+    animationIdRef.current = requestAnimationFrame(animate);
+    if(gameState !== 'playing' && gameState !== 'paused') return;
+    
+    const controlledPlayer = playersRef.current[controlledPlayerIndex];
+    const moveSpeed = 0.2;
+
+    if (gameState === 'playing') {
+       // Player movement
+      if (controlsRef.current.up) controlledPlayer.position.z -= moveSpeed;
+      if (controlsRef.current.down) controlledPlayer.position.z += moveSpeed;
+      if (controlsRef.current.left) controlledPlayer.position.x -= moveSpeed;
+      if (controlsRef.current.right) controlledPlayer.position.x += moveSpeed;
+    
+      // Simple AI for other players
+      playersRef.current.forEach((player, i) => {
+        if (i === controlledPlayerIndex) return; // Skip controlled player
+        // AI players try to get closer to the ball
+        const directionToBall = new THREE.Vector3().subVectors(ballRef.current.position, player.position).normalize();
+        player.position.add(directionToBall.multiplyScalar(0.05));
+      });
+      
+      // Ball physics
+      const ball = ballRef.current;
+      const distanceToPlayer = ball.position.distanceTo(controlledPlayer.position);
+      if (distanceToPlayer < 1.5) {
+        // Simple dribbling
+        ball.position.lerp(controlledPlayer.position.clone().add(new THREE.Vector3(0, -0.7, -1)), 0.2);
+      }
+    }
+
+    // Update camera to follow player
+    cameraRef.current.position.x = controlledPlayer.position.x;
+    cameraRef.current.position.z = controlledPlayer.position.z + 20;
+    cameraRef.current.lookAt(controlledPlayer.position.x, 0, controlledPlayer.position.z);
+    
+    rendererRef.current.render(sceneRef.current, cameraRef.current);
+  };
+
+  const startMatch = () => {
+    if (userCards.length < 11) {
+      alert("You need at least 11 player cards to play a League match.");
+      return;
+    }
+    gameTimeRef.current = 90;
+    setScore({ player: 0, opponent: 0 });
+    setGameState('playing');
+    // We defer scene initialization to a useEffect that watches gameState
+  };
+
+  useEffect(() => {
+    if (gameState === 'playing' && !isSceneReady) {
+      init3DScene();
+    }
+  }, [gameState, isSceneReady]);
+
+
+  const togglePause = () => {
+    setGameState(prev => prev === 'paused' ? 'playing' : 'paused');
+  };
+
+  const endMatch = () => {
+    setGameState('menu');
+  };
+
+  if (!user || !userStats) {
+    return <div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-32 w-32 border-b-2 border-purple-500"></div></div>;
+  }
+  
+  if(gameState !== 'menu') {
+    return (
+        <div className="relative w-full h-screen bg-black">
+             <div className="absolute top-0 left-0 right-0 z-10 flex justify-between items-center bg-black/50 backdrop-blur-sm p-4 text-white">
+                <Badge className="bg-blue-600 text-lg">You: {score.player}</Badge>
+                <div className="text-center">
+                    <div className="text-2xl font-bold">{gameTime}</div>
+                    {gameState === 'paused' && <div className="text-yellow-400">PAUSED</div>}
+                </div>
+                <Badge className="bg-red-600 text-lg">Opponent: {score.opponent}</Badge>
+             </div>
+             <div ref={mountRef} className="w-full h-full" />
+             <div className="absolute bottom-4 left-4 right-4 z-10 flex justify-center gap-4">
+                 <Button onClick={togglePause} variant="outline" className="text-white border-white">
+                     {gameState === 'paused' ? <Play className="mr-2"/> : <Pause className="mr-2"/>}
+                     {gameState === 'paused' ? 'Resume' : 'Pause'}
+                 </Button>
+                 <Button onClick={endMatch} variant="destructive">End Match</Button>
+             </div>
+        </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-center mb-8">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">League Mode</h1>
+              <p className="text-purple-300">Full 11v11 soccer matches with trophy progression</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <Badge className="bg-yellow-500 text-black px-4 py-2">
+                <Trophy className="w-5 h-5 mr-2" />
+                {userStats.trophies} Trophies
+              </Badge>
+            </div>
+          </div>
+          <div className="text-center">
+            <Card className="max-w-md mx-auto bg-black/20 backdrop-blur-md border border-purple-500/20">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center justify-center gap-2">
+                  <ShieldCheck className="w-8 h-8" />
+                  Play League Match
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-purple-300">
+                  Compete in full matches to earn Trophies and climb the ranks! You need 11 players in your collection to play.
+                </p>
+                <p className="text-gray-400 text-sm">Your first matches up to 300 trophies will be against bots to help you practice.</p>
+                <Button 
+                  onClick={startMatch}
+                  className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 py-6 text-lg"
+                  disabled={userCards.length < 11}
+                >
+                  {userCards.length < 11 ? `Need ${11 - userCards.length} more players` : 'Start Match'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+      </div>
+    </div>
+  );
+}

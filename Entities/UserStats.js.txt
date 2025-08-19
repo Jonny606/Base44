@@ -1,0 +1,87 @@
+{
+  "name": "UserStats",
+  "type": "object",
+  "properties": {
+    "coins": {
+      "type": "integer",
+      "default": 500,
+      "description": "Player coins"
+    },
+    "upgrade_points": {
+      "type": "integer",
+      "default": 10,
+      "description": "Points used to level up player cards"
+    },
+    "trophies": {
+      "type": "integer",
+      "default": 0,
+      "description": "Trophies won from competitive modes"
+    },
+    "last_daily_gift_claim": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The timestamp of the last daily gift claim"
+    },
+    "total_matches": {
+      "type": "integer",
+      "default": 0,
+      "description": "Total matches played"
+    },
+    "wins": {
+      "type": "integer",
+      "default": 0,
+      "description": "Total wins"
+    },
+    "losses": {
+      "type": "integer",
+      "default": 0,
+      "description": "Total losses"
+    },
+    "goals_scored": {
+      "type": "integer",
+      "default": 0,
+      "description": "Total goals scored"
+    },
+    "goals_conceded": {
+      "type": "integer",
+      "default": 0,
+      "description": "Total goals conceded"
+    },
+    "current_streak": {
+      "type": "integer",
+      "default": 0,
+      "description": "Current win streak"
+    },
+    "best_streak": {
+      "type": "integer",
+      "default": 0,
+      "description": "Best win streak"
+    },
+    "level": {
+      "type": "integer",
+      "default": 1,
+      "description": "Player level"
+    },
+    "experience": {
+      "type": "integer",
+      "default": 0,
+      "description": "Player experience points"
+    },
+    "stadium_unlocked": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "basic"
+      ],
+      "description": "Unlocked stadiums"
+    }
+  },
+  "required": [],
+  "rls": {
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}
