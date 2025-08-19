@@ -1,127 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Player Card</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #121212;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .player-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 15px;
+      border: 2px solid #666;
+      width: 250px;
+      overflow: hidden;
+      text-align: center;
+      padding: 15px;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      cursor: pointer;
+    }
+    .player-card:hover {
+      transform: scale(1.05) translateY(-5px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+    }
+    .rarity-badge {
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 12px;
+      display: inline-block;
+      margin-bottom: 5px;
+    }
+    .level {
+      font-size: 12px;
+      color: #ccc;
+      margin-bottom: 10px;
+    }
+    .stats {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 10px;
+    }
+    .stat {
+      text-align: center;
+    }
+    .stat span {
+      display: block;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .level-up-btn {
+      margin-top: 10px;
+      padding: 5px 10px;
+      background: green;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .level-up-btn:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
 
-import React from "react";
-import { Link, useLocation } from "react-router-dom";
-import { createPageUrl } from "@/utils";
-import { Trophy, Users, Gamepad2, CreditCard, Settings, ShoppingCart, ShieldCheck } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarHeader,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+<div id="player-container"></div>
 
-const navigationItems = [
-  {
-    title: "Game",
-    url: createPageUrl("Game"),
-    icon: Gamepad2,
-  },
-  {
-    title: "Cards",
-    url: createPageUrl("Cards"),
-    icon: CreditCard,
-  },
-  {
-    title: "Shop",
-    url: createPageUrl("Shop"),
-    icon: ShoppingCart,
-  },
-  {
-    title: "Multiplayer",
-    url: createPageUrl("Multiplayer"),
-    icon: Users,
-  },
-  {
-    title: "Leagues",
-    url: createPageUrl("Leagues"),
-    icon: ShieldCheck,
-  },
-  {
-    title: "Tournament",
-    url: createPageUrl("Tournament"),
-    icon: Trophy,
-  },
-];
+<script>
+  const player = {
+    name: "Lionel Messi",
+    position: "striker",
+    rarity: "legendary",
+    cardInfo: { level: 5 },
+    power: 90,
+    speed: 85,
+    accuracy: 95
+  };
 
-export default function Layout({ children, currentPageName }) {
-  const location = useLocation();
+  const RARITY_STYLES = {
+    common: "#888",
+    rare: "#3498db",
+    epic: "#9b59b6",
+    legendary: "#f1c40f"
+  };
 
-  return (
-    <SidebarProvider>
-      <style>
-        {`
-          :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --warning-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-            --game-bg: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #2d1b69 100%);
-          }
-        `}
-      </style>
-      <div className="min-h-screen flex w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-        <Sidebar className="border-r border-purple-500/20 bg-black/20 backdrop-blur-md">
-          <SidebarHeader className="border-b border-purple-500/20 p-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-                <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="font-bold text-white text-lg">PenaltyPro</h2>
-                <p className="text-xs text-purple-300">Elite Soccer Game</p>
-              </div>
-            </div>
-          </SidebarHeader>
-          
-          <SidebarContent className="p-2">
-            <SidebarGroup>
-              <SidebarGroupLabel className="text-xs font-medium text-purple-300 uppercase tracking-wider px-3 py-2">
-                Game Modes
-              </SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {navigationItems.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton 
-                        asChild 
-                        className={`hover:bg-purple-500/20 hover:text-white transition-all duration-300 rounded-lg mb-1 ${
-                          location.pathname === item.url ? 'bg-purple-500/30 text-white shadow-lg' : 'text-purple-200'
-                        }`}
-                      >
-                        <Link to={item.url} className="flex items-center gap-3 px-3 py-3">
-                          <item.icon className="w-5 h-5" />
-                          <span className="font-medium">{item.title}</span>
-                          {item.title === 'Leagues' && <Badge className="text-xs bg-yellow-500 text-black">Soon</Badge>}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </SidebarContent>
-        </Sidebar>
+  const LEVEL_UP_COST = (level) => 5 + Math.floor(level * 1.5);
+  let upgradePoints = 20;
 
-        <main className="flex-1 flex flex-col">
-          <header className="bg-black/20 backdrop-blur-md border-b border-purple-500/20 px-6 py-4 md:hidden">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="hover:bg-purple-500/20 p-2 rounded-lg transition-colors duration-200 text-white" />
-              <h1 className="text-xl font-bold text-white">PenaltyPro</h1>
-            </div>
-          </header>
+  function createPlayerCard(player) {
+    const container = document.createElement('div');
+    container.className = 'player-card';
 
-          <div className="flex-1 overflow-auto">
-            {children}
-          </div>
-        </main>
-      </div>
-    </SidebarProvider>
-  );
-}
+    // Rarity badge
+    const rarity = document.createElement('div');
+    rarity.className = 'rarity-badge';
+    rarity.textContent = player.rarity.toUpperCase();
+    rarity.style.backgroundColor = RARITY_STYLES[player.rarity] || "#666";
+    container.appendChild(rarity);
+
+    // Player name and position
+    const name = document.createElement('h3');
+    name.textContent = player.name;
+    container.appendChild(name);
+
+    const position = document.createElement('p');
+    position.textContent = player.position;
+    container.appendChild(position);
+
+    // Level
+    const level = document.createElement('div');
+    level.className = 'level';
+    level.textContent = "Level: " + player.cardInfo.level;
+    container.appendChild(level);
+
+    // Stats
+    const stats = document.createElement('div');
+    stats.className = 'stats';
+    ['power','speed','accuracy'].forEach(statKey => {
+      const statDiv = document.createElement('div');
+      statDiv.className = 'stat';
+      statDiv.innerHTML = `<span>${player[statKey]}</span>${statKey.toUpperCase()}`;
+      stats.appendChild(statDiv);
+    });
+    container.appendChild(stats);
+
+    // Level up button
+    const levelUpBtn = document.createElement('button');
+    levelUpBtn.className = 'level-up-btn';
+    levelUpBtn.textContent = `Level Up (${LEVEL_UP_COST(player.cardInfo.level)} pts)`;
+    levelUpBtn.disabled = upgradePoints < LEVEL_UP_COST(player.cardInfo.level) || player.cardInfo.level >= 10;
+    levelUpBtn.onclick = (e) => {
+      e.stopPropagation();
+      if(upgradePoints >= LEVEL_UP_COST(player.cardInfo.level) && player.cardInfo.level < 10) {
+        upgradePoints -= LEVEL_UP_COST(player.cardInfo.level);
+        player.cardInfo.level++;
+        level.textContent = "Level: " + player.cardInfo.level;
+        levelUpBtn.textContent = `Level Up (${LEVEL_UP_COST(player.cardInfo.level)} pts)`;
+        if(player.cardInfo.level >= 10) {
+          levelUpBtn.disabled = true;
+          levelUpBtn.textContent = "MAX LEVEL";
+        }
+      }
+    };
+    container.appendChild(levelUpBtn);
+
+    return container;
+  }
+
+  const container = document.getElementById('player-container');
+  container.appendChild(createPlayerCard(player));
+</script>
+
+</body>
+</html>
